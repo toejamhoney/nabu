@@ -1,5 +1,7 @@
 import logging
 import re
+import sys
+import traceback
 from xml.etree.ElementTree import TreeBuilder, tostring
 
 from lib.parse.pdfminer import pdftypes
@@ -16,7 +18,11 @@ ENC = 'base64'
 def parse_and_hash(pdfpath):
     parser = PDFMinerParser()
     pdf = PDF(pdfpath)
-    parser.parse(pdf)
+    try:
+        parser.parse(pdf)
+    except Exception as e:
+        logging.error("Parse and hash error on %s: %s" % (pdfpath, e))
+        pdf.parsed = False
     return pdf
 
 
@@ -64,7 +70,6 @@ class PDFMinerParser(object):
             self.treebuild.end("list")
 
         elif isinstance(obj, str):
-            self.add_xml_node("string", obj_attrs.update({"enc": "ascii"}), obj.encode('ascii', 'backslashreplace'))
             self.add_xml_node("string", obj_attrs.update({"enc": ENC}), self.esc(obj).encode(ENC))
 
         elif isinstance(obj, pdftypes.PDFStream):
@@ -149,14 +154,12 @@ class PDFMinerParser(object):
                     self.add_xml_node("exception", {}, e.message)
 
                 self.treebuild.data(obj_data)
+                try:
+                    self.treebuild.end("object")
+                except AssertionError as e:
+                    logging.error("Parse end object error: %s" % e)
+                    sys.stderr.write("%s\n" % tostring(obj_xml))
 
-                self.treebuild.end("object")
-
-        """
-        Loop xrefs again to maintain compatibily with edge list. Else, the edges
-        would be different, thus throwing off the graph hashes already made.
-        """
-        for xref in doc.xrefs:
             self.treebuild.start("trailer", {})
             self.dump(xref.trailer)
             self.treebuild.end("trailer")

@@ -2,8 +2,8 @@ import hashlib
 import logging
 import os
 import sys
+import traceback
 from argparse import ArgumentParser
-from xml.etree.ElementTree import tostring
 from multiprocessing import Pool, cpu_count
 
 from storage import dbgw
@@ -14,10 +14,10 @@ def print_usage():
     sys.stdout.write("Todo: Usage\n")
 
 
-def get_job_id(fin):
-    sha1 = hashlib.sha1()
-    sha1.update(os.path.abspath(fin))
-    return sha1.hexdigest()
+def get_hash(data):
+    md5 = hashlib.md5()
+    md5.update(data)
+    return md5.hexdigest()
 
 
 def parse_file_set(fpath):
@@ -42,8 +42,9 @@ def main(argv):
     todo = parse_file_set(argv.fin)
 
     job_db = dbgw.JobDb(os.path.join(argv.dbdir, argv.jobdb))
+    graph_db = dbgw.GraphDb(os.path.join(argv.dbdir, argv.graphdb))
 
-    if not job_db.connected():
+    if not job_db.connected() or not graph_db.connected():
         logging.error("Could not connect to job database. Jobs will not be saved, and cannot be resumed")
         while True:
             choice = intern(raw_input("Continue? y/n").lower())
@@ -53,8 +54,9 @@ def main(argv):
                 sys.exit(1)
 
     job_db.init()
+    graph_db.init()
 
-    job_id = get_job_id(argv.fin)
+    job_id = get_hash(os.path.abspath(argv.fin))
 
     if not argv.update:
         done = job_db.get_completed(job_id)
@@ -72,7 +74,11 @@ def main(argv):
         for pdf in pool.imap_unordered(pfunc, todo, argv.chunk * argv.procs):
             if pdf.parsed:
                 job_db.mark_complete(job_id, pdf.path)
-                sys.stdout.write("%s\n%s\n%s\n" % ("*"*80, tostring(pdf.xml), "*"*80))
+                verts, edges = pdf.get_nodes_edges()
+                if argv.action == "build":
+                    graph_db.save(os.path.basename(pdf.path), get_hash(str(edges)), verts, edges)
+                elif argv.action == "score":
+                    pass
     except KeyboardInterrupt:
         pool.terminate()
         pass
@@ -84,9 +90,11 @@ def main(argv):
 if __name__ == "__main__":
     argparser = ArgumentParser()
 
+    argparser.add_argument('action',
+                           default="build",
+                           help="Action to perform. 'build' | 'score'")
     argparser.add_argument('fin',
                            help="line separated text file of samples to run")
-
     argparser.add_argument('-b', '--beginning',
                            action='store_true',
                            default=False,
@@ -99,6 +107,9 @@ if __name__ == "__main__":
                            action='store_true',
                            default=True,
                            help="Spam the terminal with debug output")
+    argparser.add_argument('--graphdb',
+                           default='nabu-graphdb.sqlite',
+                           help='Graph database filename. Default is nabu-graphdb.sqlite')
     argparser.add_argument('--jobdb',
                            default='nabu-jobs.sqlite',
                            help='Job database filename. Default is nabu-jobs.sqlite')
