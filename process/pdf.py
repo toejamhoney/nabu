@@ -4,7 +4,8 @@ from xml.etree.ElementTree import tostring, ElementTree
 
 class PDF(object):
 
-    def __init__(self, path):
+    def __init__(self, path, name='unnamed'):
+        self.name = name
         self.parsed = False
         self.path = path
         self.size = 0
@@ -24,9 +25,9 @@ class PDF(object):
                 try:
                     rootid = obj.find(".//ref").get("id")
                 except AttributeError:
-                    logging.warn("PDF.get_root error: %s\nRoot missing reference object: %s" % (self.path, tostring(obj)))
+                    logging.warn("PDF.get_root error: %s\tRoot missing reference object: %s" % (self.name, tostring(obj)))
             else:
-                logging.warn("PDF.get_root error: %s\nMissing root node" % self.path)
+                logging.warn("PDF.get_root error: %s\tMissing root node" % self.name)
         return rootid
 
     @staticmethod

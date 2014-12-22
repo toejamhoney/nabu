@@ -19,8 +19,7 @@ OUTPUTDIR = '/Volumes/Macintosh_HD_2/nabu-pdf-xml'
 
 def parse_and_hash(pdfpath):
     parser = PDFMinerParser()
-    pdf = PDF(pdfpath)
-    pdf.name = os.path.basename(pdfpath)
+    pdf = PDF(pdfpath, os.path.basename(pdfpath))
 
     try:
         parser.parse(pdf)
@@ -28,13 +27,14 @@ def parse_and_hash(pdfpath):
         logging.error("Parse and hash error on %s: %s" % (pdfpath, e))
         pdf.parsed = False
 
-    fout = os.path.join(OUTPUTDIR, "%s.xml" % pdf.name)
-    try:
-        gzfp = gzip.open(fout, "wb", compresslevel=4)
-    except IOError as e:
-        logging.error("Parse and hash error opening xml output file: %s\n\t%s" % (fout, e))
-    else:
-        pdf.save_xml(gzfp)
+    if pdf.parsed:
+        fout = os.path.join(OUTPUTDIR, "%s.xml.zip" % pdf.name)
+        try:
+            gzfp = gzip.open(fout, "wb", compresslevel=4)
+        except IOError as e:
+            logging.error("Parse and hash error opening xml output file: %s\n\t%s" % (fout, e))
+        else:
+            pdf.save_xml(gzfp)
 
     return pdf
 
@@ -127,7 +127,7 @@ class PDFMinerParser(object):
         try:
             fp = open(pdf.path, 'rb')
         except IOError as e:
-            logging.error("Parse unable to open PDF: %s" % e)
+            logging.error("PDFMinerParser.parse unable to open PDF: %s" % e)
             return
 
         parser = PDFParser(fp)

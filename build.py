@@ -10,10 +10,6 @@ from storage import dbgw
 from process.parsers import parse
 
 
-def print_usage():
-    sys.stdout.write("Todo: Usage\n")
-
-
 def get_hash(data):
     md5 = hashlib.md5()
     md5.update(data)
@@ -76,16 +72,10 @@ def main(argv):
     try:
         for pdf in p.imap_unordered(pfunc, todo, argv.chunk * argv.procs):
             cnt += 1
-            sys.stdout.write("%7d/%7d [%d bytes] %s\n" % (cnt, total_jobs, sys.getsizeof(pdf), pdf.name))
+            sys.stdout.write("%7d/%7d %s\n" % (cnt, total_jobs, pdf.name))
             if pdf.parsed:
                 verts, edges = pdf.get_nodes_edges()
-
-                print verts
-
-                if argv.action == "build":
-                    graph_db.save(pdf.name, get_hash(str(edges)), verts, edges)
-                elif argv.action == "score":
-                    pass
+                graph_db.save(pdf.name, get_hash(str(edges)), verts, edges)
                 job_db.mark_complete(job_id, pdf.path)
     except KeyboardInterrupt:
         sys.stdout.write("Terminating pool...\n")
@@ -100,9 +90,6 @@ def main(argv):
 if __name__ == "__main__":
     argparser = ArgumentParser()
 
-    argparser.add_argument('action',
-                           default="build",
-                           help="Action to perform. 'build' | 'score'")
     argparser.add_argument('fin',
                            help="line separated text file of samples to run")
     argparser.add_argument('-b', '--beginning',
