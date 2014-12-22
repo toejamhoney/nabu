@@ -5,6 +5,9 @@ import cPickle
 
 class NabuDb(object):
 
+    table = "unknown"
+    cols = []
+
     def __init__(self, dbpath):
         try:
             self.conn = sqlite3.connect(dbpath)
@@ -56,6 +59,25 @@ class JobDb(NabuDb):
     def mark_complete(self, job_name, sample):
         cmd = "insert into %s values(?, ?)" % self.table
         rv = self.query(cmd, (job_name, sample))
+        return rv
+
+
+class XmlDb(NabuDb):
+
+    table = "xml"
+    cols = ["pdf_id primary key", "xml"]
+
+    def save(self, pdf_id, xml_str):
+        cmd = "insert or replace into %s values(?, ?)" % self.table
+        return self.query(cmd, (pdf_id, xml_str))
+
+    def load(self, pdf_id):
+        cmd = "select xml from %s where pdf_id=?" % self.table
+        rows = self.query(cmd, (pdf_id,))
+        try:
+            rv = rows[0][0]
+        except Exception:
+            rv = ''
         return rv
 
 

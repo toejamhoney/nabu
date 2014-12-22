@@ -1,6 +1,7 @@
 import logging
 from xml.etree.ElementTree import tostring
 
+
 class PDF(object):
 
     def __init__(self, path):
@@ -40,3 +41,14 @@ class PDF(object):
                     dst_id = ref.get("id")
                     edges.add((src_id, dst_id))
         return vertices, edges
+
+    def get_xml_str(self):
+        try:
+            rv = tostring(self.xml)
+        except AttributeError as e:
+            logging.error("PDF xml element object error: %s" % e)
+            rv = ''
+        except Exception as e:
+            logging.error("PDF xml str uncaught exception: %s" % e)
+            rv = ''
+        return rv
