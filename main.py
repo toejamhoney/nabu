@@ -76,15 +76,17 @@ def main(argv):
     try:
         for pdf in p.imap_unordered(pfunc, todo, argv.chunk * argv.procs):
             cnt += 1
-            pdfname = os.path.basename(pdf.path)
-            sys.stdout.write("%7d/%7d [%d bytes] %s\n" % (cnt, total_jobs, sys.getsizeof(pdf), pdfname))
+            sys.stdout.write("%7d/%7d [%d bytes] %s\n" % (cnt, total_jobs, sys.getsizeof(pdf), pdf.name))
             if pdf.parsed:
-                job_db.mark_complete(job_id, pdf.path)
                 verts, edges = pdf.get_nodes_edges()
+
+                print verts
+
                 if argv.action == "build":
-                    graph_db.save(pdfname, get_hash(str(edges)), verts, edges)
+                    graph_db.save(pdf.name, get_hash(str(edges)), verts, edges)
                 elif argv.action == "score":
                     pass
+                job_db.mark_complete(job_id, pdf.path)
     except KeyboardInterrupt:
         sys.stdout.write("Terminating pool...\n")
         p.terminate()
@@ -121,6 +123,9 @@ if __name__ == "__main__":
     argparser.add_argument('--jobdb',
                            default='nabu-jobs.sqlite',
                            help='Job database filename. Default is nabu-jobs.sqlite')
+    argparser.add_argument('--xmldb',
+                           default='nabu-xml.sqlite',
+                           help='xml database filename. Default is nabu-xml.sqlite')
     argparser.add_argument('--dbdir',
                            default='db',
                            help="Database directory. Default is .../nabu/db/")

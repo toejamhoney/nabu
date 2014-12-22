@@ -1,5 +1,5 @@
 import logging
-from xml.etree.ElementTree import tostring
+from xml.etree.ElementTree import tostring, ElementTree
 
 
 class PDF(object):
@@ -29,14 +29,22 @@ class PDF(object):
                 logging.warn("PDF.get_root error: %s\nMissing root node" % self.path)
         return rootid
 
+    @staticmethod
+    def get_obj_contents(obj):
+        rv = []
+        for item in obj.iter():
+            rv.append(item.tag)
+        return frozenset(rv)
+
     def get_nodes_edges(self):
         rootid = self.get_root()
-        vertices = set()
+        vertices = {("PDF", "start")}
         edges = {("PDF", rootid)}
         if self.xml is not None:
             for obj in self.xml.iterfind("object"):
                 src_id = obj.get("id")
-                vertices.add(src_id)
+                src_vals = self.get_obj_contents(obj)
+                vertices.add((src_id, src_vals))
                 for ref in obj.iter("ref"):
                     dst_id = ref.get("id")
                     edges.add((src_id, dst_id))
@@ -52,3 +60,11 @@ class PDF(object):
             logging.error("PDF xml str uncaught exception: %s" % e)
             rv = ''
         return rv
+
+    def save_xml(self, fp):
+        try:
+            ElementTree(element=self.xml).write(fp)
+        except (AttributeError, IOError) as e:
+            logging.error("PDF save xml unable to write out xml: %s" % e)
+        except Exception as e:
+            logging.error("PDF save xml UNCAUGHT EXCEPTION: %s" % e)

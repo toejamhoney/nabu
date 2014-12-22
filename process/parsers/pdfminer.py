@@ -1,7 +1,8 @@
 import logging
+import os
 import re
 import sys
-import traceback
+import gzip
 from xml.etree.ElementTree import TreeBuilder, tostring
 
 from lib.parse.pdfminer import pdftypes
@@ -13,16 +14,28 @@ from process.pdf import PDF
 
 ESC_PAT = re.compile(r'[\000-\037&<>()"\042\047\134\177-\377]')
 ENC = 'base64'
+OUTPUTDIR = '/Volumes/Macintosh_HD_2/nabu-pdf-xml'
 
 
 def parse_and_hash(pdfpath):
     parser = PDFMinerParser()
     pdf = PDF(pdfpath)
+    pdf.name = os.path.basename(pdfpath)
+
     try:
         parser.parse(pdf)
     except Exception as e:
         logging.error("Parse and hash error on %s: %s" % (pdfpath, e))
         pdf.parsed = False
+
+    fout = os.path.join(OUTPUTDIR, "%s.xml" % pdf.name)
+    try:
+        gzfp = gzip.open(fout, "wb", compresslevel=4)
+    except IOError as e:
+        logging.error("Parse and hash error opening xml output file: %s\n\t%s" % (fout, e))
+    else:
+        pdf.save_xml(gzfp)
+
     return pdf
 
 
