@@ -16,6 +16,8 @@ class PDF(object):
         self.blob = None
         self.errors = None
         self.bytes_read = 0
+        self.v = None
+        self.e = None
 
     def get_root(self):
         rootid = "0"
@@ -39,16 +41,20 @@ class PDF(object):
 
     def get_nodes_edges(self):
         rootid = self.get_root()
-        vertices = {("PDF", "start")}
+        vertices = {("PDF", frozenset(["start"]))}
         edges = {("PDF", rootid)}
         if self.xml is not None:
             for obj in self.xml.iterfind("object"):
                 src_id = obj.get("id")
+                while src_id in vertices:
+                    src_id += '_'
                 src_vals = self.get_obj_contents(obj)
                 vertices.add((src_id, src_vals))
                 for ref in obj.iter("ref"):
                     dst_id = ref.get("id")
                     edges.add((src_id, dst_id))
+        self.v = vertices
+        self.e = edges
         return vertices, edges
 
     def get_xml_str(self):

@@ -1,33 +1,103 @@
 import sys
-from random import randint
+from collections import namedtuple
 
 
 def make_matrix(n, m=None):
     if not m:
         m = n
-    return [[0 for c in range(n)] for r in range(m)]
+    return [[0 for col in range(n)] for row in range(m)]
+
+
+def build_assoc_graph(self, g1, g2):
+    v = build_v(g1.v, g2.v)
+    e = build_e(v, g1, g2)
+    ag = AssocGraph(order=g1.order * g2.order)
+    self.init_vertices(g1.v, g2.v)
+
+
+def build_v(self, verts1, verts2):
+    v = []
+    for v1 in verts1:
+        for v2 in verts2:
+            weight = self.calc_weight(v1, v2)
+            attrs = []
+            v.append(AgVertex(len(self.v), weight, (v1.label, v2.label), attrs, v1.label, v2.label))
+    return v
+
+
+def build_e(self, v, g1, g2):
+    for vertex in v:
+
+
+'''
+def build_e(self, v, g1, g2):
+    print("AG.build G1.map: %s" % self.g1.v_map)
+    print("AG.build G2.map: %s" % self.g2.v_map)
+    for i1, v1 in enumerate(self.v):
+        self.calc_weight(v1[0], v1[1])
+        for i2, v2 in enumerate(self.v):
+            if v1[0] == v2[0] or v1[1] == v2[1]:
+                continue
+            if self.g1.adjacent(v1[0], v2[0]) and self.g2.adjacent(v1[1], v2[1]):
+                self.matrix[i1][i2] = 1
+
+            elif not self.g1.adjacent(v1[0], v2[0]) and not self.g2.adjacent(v1[1], v2[1]):
+                self.matrix[i1][i2] = 1
+            else:
+                self.matrix[i1][i2] = 0
+'''
+
+
+def calc_weight(self, v1, v2):
+    return float(len(v1.attrs.intersection(v2.attrs)))/len(v1.attrs.union(v2.attrs))
+
+Vertex = namedtuple('Vertex', 'idx weight label attrs')
+AgVertex = namedtuple('AgVertex', Vertex._fields + 'v1 v2')
 
 
 class Graph(object):
 
-    def __init__(self, v, e):
-        self.v = []
-        self.v_map = dict()
-        for idx, (vname, vattrs) in enumerate(v):
-            self.v.append(vname)
-            self.v_map[vname] = {"idx": idx, "attrs": vattrs}
+    def __init__(self, v=None, e=None, order=None):
+        self.v = v
+        if not v:
+            self.v = []
         self.e = e
+        if not e:
+            self.e = {}
         self.order = len(v)
         self.size = len(e)
         self.cliques = []
-        self.matrix = make_matrix(self.order)
+        self.matrix = None
 
     def build(self):
+        self.matrix = [[0 for col in range(self.order)] for row in range(self.order)]
+        self.init_vertices()
+        self.init_edges()
+
+    def init_vertices(self):
+        for idx, vert in enumerate(self.v):
+            vertex = Vertex(idx, *vert)
+            self.v[idx] = vertex
+
+    def init_edges(self):
+        vmap = dict()
         for src, dst in self.e:
-            a = self.v_map.get(src)["idx"]
-            b = self.v_map.get(dst)["idx"]
-            self.matrix[a][b] = 1
-            self.matrix[b][a] = 1
+            sidx = vmap.get(src)
+            if not sidx:
+                sidx = self.v_by_label(src)
+                vmap[src] = sidx
+            didx = vmap.get(dst)
+            if not didx:
+                didx = self.v_by_label(dst)
+                vmap[dst] = didx
+            self.matrix[sidx][didx] = 1
+            self.matrix[didx][sidx] = 1
+
+    def v_by_label(self, label):
+        for vertex in self.v:
+            if vertex.label == label:
+                return vertex.idx
+        raise KeyError("Unknown vertex label")
 
     def adjacent(self, v1, v2):
         if v1 == v2:
@@ -37,14 +107,14 @@ class Graph(object):
     def neighbors(self, nid):
         return [idx for idx, edge in enumerate(self.matrix[nid]) if edge == 1]
 
-    def bron_kerbosch_1(self, R, P, X):
-        if not P and not X:
-            self.cliques.append(R)
-        while P:
-            vert = P.pop()
-            N = set(self.neighbors(vert))
-            self.bron_kerbosch_1(R.union({vert}), P.intersection(N), X.intersection(N))
-            X.add(vert)
+    def bron_kerbosch_1(self, r, p, x):
+        if not p and not x:
+            self.cliques.append(r)
+        while p:
+            vert = p.pop()
+            n = set(self.neighbors(vert))
+            self.bron_kerbosch_1(r.union({vert}), p.intersection(n), x.intersection(n))
+            x.add(vert)
 
     def max_clique(self):
         if self.cliques:
@@ -52,8 +122,9 @@ class Graph(object):
         else:
             return []
 
-    def get_attr(self, v):
-        return self.v_map.get(v)["attrs"]
+    def v_attr(self, v):
+        idx = self.v_map.get(v)["idx"]
+        return self.v_map.get(idx)["attrs"]
 
     def __str__(self):
         rv = '\n'.join([', '.join([str(r) for r in row]) for row in self.matrix]) 
@@ -62,36 +133,16 @@ class Graph(object):
 
 class AssocGraph(Graph):
 
-    def __init__(self, g1, g2):
-        self.g1 = g1
-        self.g2 = g2
-        self.v_weights = dict()
-        v = [((a, b), frozenset([])) for a in range(g1.order) for b in range(g2.order)]
-        super(AssocGraph, self).__init__(v, set())
+    def __init__(self, order):
+        super(AssocGraph, self).__init__(order=order)
 
-    def build(self):
-        for i1, v1 in enumerate(self.v):
-            self.calculate_weight(v1[0], v1[1])
-            for i2, v2 in enumerate(self.v):
-                if v1[0] == v2[0] or v1[1] == v2[1]:
-                    continue
-                if self.g1.adjacent(v1[0], v2[0]) and self.g2.adjacent(v1[1], v2[1]):
-                    self.matrix[i1][i2] = 1
-                elif not self.g1.adjacent(v1[0], v2[0]) and not self.g2.adjacent(v1[1], v2[1]):
-                    self.matrix[i1][i2] = 1
-                else:
-                    self.matrix[i1][i2] = 0
 
-    def calculate_weight(self, v1, v2):
-        v1attr = self.g1.get_attr(v1)
-        v2attr = self.g2.get_attr(v2)
-        print v1attr, v2attr
-        print len(v1attr.intersection(v2attr))
-        print len(v1attr.union(v2attr))
-        self.v_weights[(v1, v2)] = 1.0 * len(v1attr.intersection(v2attr))/len(v1attr.union(v2attr))
 
     def clique_weight(self, clique):
+        """
         return sum([self.v_weights.get(self.v[n]) for n in clique])
+        """
+        return sum([self.v])
 
     def max_clique(self):
         weights = [self.clique_weight(c) for c in self.cliques]
@@ -99,6 +150,12 @@ class AssocGraph(Graph):
         maxw = max(weights)
         clique_idx = weights.index(maxw)
         return self.cliques[clique_idx]
+
+    def __str__(self):
+        rv = ""
+        for node in self.v:
+            rv += "[%d/%d] " % (node[0], node[1])
+        return rv
 
 
 def similarity(mcs, g1, g2):

@@ -42,6 +42,14 @@ class NabuDb(object):
             c.close()
             return rows
 
+    def size(self):
+        cmd = "select count(*) from %s" % self.table
+        rows = self.query(cmd, ())
+        if rows:
+            return rows[0][0]
+        else:
+            return -1
+
     def close(self):
         self.conn.close()
 
@@ -123,3 +131,10 @@ class GraphDb(NabuDb):
         else:
             graph_md5, v_set, e_set = '', '', ''
         return graph_md5, v_set, e_set
+
+    def chunk(self, limit, offset):
+        cmd = "select pdf_id, vertices, edges from %s limit %d offset %d" % (self.table, limit, offset)
+        rows = self.query(cmd, ())
+        for idx, (pdf, v, e) in enumerate(rows):
+            rows[idx] = [pdf, self.deserialize(v), self.deserialize(e)]
+        return rows
