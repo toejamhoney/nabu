@@ -27,34 +27,24 @@ class PDF(object):
                 try:
                     rootid = obj.find(".//ref").get("id")
                 except AttributeError:
-                    logging.warn("PDF.get_root error: %s\tRoot missing reference object: %s" % (self.name, tostring(obj)))
+                    logging.warn("PDF.get_root: %s\tRoot missing reference object: %s" % (self.name, tostring(obj)))
             else:
-                logging.warn("PDF.get_root error: %s\tMissing root node" % self.name)
+                logging.warn("PDF.get_root: %s\tMissing root node" % self.name)
         return rootid
-
-    @staticmethod
-    def get_obj_contents(obj):
-        rv = []
-        for item in obj.iter():
-            rv.append(item.tag)
-        return frozenset(rv)
 
     def get_nodes_edges(self):
         rootid = self.get_root()
-        vertices = {("PDF", frozenset(["start"]))}
-        edges = {("PDF", rootid)}
+        vertices = [("PDF", ["start"])]
+        edges = [("PDF", rootid)]
         if self.xml is not None:
             for obj in self.xml.iterfind("object"):
                 src_id = obj.get("id")
                 while src_id in vertices:
                     src_id += '_'
-                src_vals = self.get_obj_contents(obj)
-                vertices.add((src_id, src_vals))
+                vertices.append((src_id, [item.tag for item in obj.iter()]))
                 for ref in obj.iter("ref"):
                     dst_id = ref.get("id")
-                    edges.add((src_id, dst_id))
-        self.v = vertices
-        self.e = edges
+                    edges.append((src_id, dst_id))
         return vertices, edges
 
     def get_xml_str(self):
