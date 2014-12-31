@@ -6,8 +6,8 @@ class PDF(object):
 
     def __init__(self, path, name='unnamed'):
         self.name = name
-        self.parsed = False
         self.path = path
+        self.parsed = False
         self.size = 0
         self.js = ''
         self.swf = ''
@@ -16,11 +16,11 @@ class PDF(object):
         self.blob = None
         self.errors = None
         self.bytes_read = 0
-        self.v = None
-        self.e = None
+        self.v = []
+        self.e = []
 
     def get_root(self):
-        rootid = "0"
+        rootid = None
         if self.xml is not None:
             obj = self.xml.find(".//Root")
             if obj is not None:
@@ -33,19 +33,31 @@ class PDF(object):
         return rootid
 
     def get_nodes_edges(self):
-        rootid = self.get_root()
-        vertices = [("PDF", ["start"])]
-        edges = [("PDF", rootid)]
-        if self.xml is not None:
-            for obj in self.xml.iterfind("object"):
-                src_id = obj.get("id")
-                while src_id in vertices:
-                    src_id += '_'
-                vertices.append((src_id, [item.tag for item in obj.iter()]))
-                for ref in obj.iter("ref"):
-                    dst_id = ref.get("id")
-                    edges.append((src_id, dst_id))
-        return vertices, edges
+        if not self.v or not self.e:
+            self.v.append(("PDF", ["start"]))
+            rootid = self.get_root()
+            if not rootid:
+                rootid = 'missing_root'
+                self.v.append((rootid, ["root"]))
+            self.e.append(("PDF", rootid))
+            visited = {()}
+            new_v = []
+            if self.xml is not None:
+                for obj in self.xml.iterfind("object"):
+                    src_id = obj.get("id")
+                    while src_id in visited:
+                        src_id += '_'
+                    visited.add(src_id)
+                    self.v.append((src_id, [item.tag for item in obj.iter()]))
+                    for ref in obj.iter("ref"):
+                        dst_id = ref.get("id")
+                        if dst_id not in visited:
+                            new_v.append(dst_id)
+                        self.e.append((src_id, dst_id))
+                for v in new_v:
+                    if v not in visited:
+                        self.v.append((v, ['missing_target']))
+        return self.v, self.e
 
     def get_xml_str(self):
         try:

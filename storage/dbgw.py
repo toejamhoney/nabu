@@ -9,6 +9,7 @@ class NabuDb(object):
     cols = []
 
     def __init__(self, dbpath):
+        self.dbpath = dbpath
         try:
             self.conn = sqlite3.connect(dbpath)
         except sqlite3.Error as e:
@@ -49,6 +50,11 @@ class NabuDb(object):
             return rows[0][0]
         else:
             return -1
+
+    def get_unique(self, field):
+        cmd = "select distinct %s from %s" % (field, self.table)
+        rows = self.query(cmd, ())
+        return rows
 
     def close(self):
         self.conn.close()
@@ -121,7 +127,18 @@ class GraphDb(NabuDb):
         rv = self.query(cmd, (pdf, graph_md5, v_json, e_json))
         return rv
 
-    def load(self, pdf):
+    def load_sample_graph(self, graph_md5):
+        cmd = "select pdf_id, vertices, edges from %s where graph_md5=? limit 1" % self.table
+        rows = self.query(cmd, (graph_md5,))
+        if rows:
+            pdf_id, v_json, e_json = rows[0]
+            v_set = self.deserialize(v_json)
+            e_set = self.deserialize(e_json)
+        else:
+            pdf_id, v_set, e_set = '', '', ''
+        return pdf_id, v_set, e_set
+
+    def load_pdf_graph(self, pdf):
         cmd = "select graph_md5, vertices, edges from %s where pdf_id=?" % self.table
         rows = self.query(cmd, (pdf,))
         if rows:

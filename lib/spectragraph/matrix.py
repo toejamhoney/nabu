@@ -11,6 +11,17 @@ class SimpleMatrix(object):
         self.size = self.rows * self.cols
         self.elements = [array('B', (0 for col in range(self.cols))) for row in range(self.rows)]
 
+    def grow(self, r, c=None):
+        if not c:
+            c = r
+        self.rows += r
+        self.cols += c
+        for row in range(self.rows):
+            try:
+                self.elements[row].extend([0 for i in range(c)])
+            except IndexError:
+                self.elements.append(array('B', (0 for col in range(self.cols))))
+
     def __len__(self):
         return self.size
 
