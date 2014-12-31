@@ -167,15 +167,21 @@ class Graph(object):
                             dv -= 1
                             D[dv].append(n)
                             dv_map[n] = dv
+                    break
         print k
         return L
 
     def bron_kerbosch_deg_order(self):
-        p = [i for i in range(len(self.v))]
+        p = set([i for i in range(len(self.v))])
         r = {()}
         x = {()}
         sorted_v = self.degenerate_order(p)
-        print "DOrder: ",[self.v[idx][1] for idx in sorted_v]
+        for v in sorted_v:
+            vset = {v}
+            n_v = set(self.neighbors(v))
+            self.bron_kerbosch_pivot(r.union(vset), p.intersection(n_v), x.intersection(n_v))
+            p.difference_update(vset)
+            x.update(vset)
 
     def __str__(self):
         rv = '['
@@ -327,7 +333,10 @@ def main():
             print g4.v[v][1],
         print
 
+    g4.cliques = []
+    g4.clique_weights = []
     g4.bron_kerbosch_deg_order()
+    print g4.cliques
 
 if __name__ == "__main__":
     main()
