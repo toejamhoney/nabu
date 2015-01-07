@@ -1,5 +1,6 @@
 import logging
-
+import networkx as nx
+import sys
 from matrix import SimpleMatrix
 
 
@@ -168,14 +169,14 @@ class Graph(object):
                             D[dv].append(n)
                             dv_map[n] = dv
                     break
-        print k
-        return L
+        return k, L
 
     def bron_kerbosch_deg_order(self):
         p = set([i for i in range(len(self.v))])
-        r = {()}
-        x = {()}
-        sorted_v = self.degenerate_order(p)
+        r = set()
+        x = set()
+        d, sorted_v = self.degenerate_order(p)
+        print "Degenerate order: %d, Vertices: %d" %(d, len(sorted_v))
         for v in sorted_v:
             vset = {v}
             n_v = set(self.neighbors(v))
@@ -196,6 +197,7 @@ class AssocGraph(Graph):
     """
 
     def __init__(self):
+        self.e = []
         self.g1order = 0
         self.g2order = 0
         super(AssocGraph, self).__init__()
@@ -234,6 +236,7 @@ class AssocGraph(Graph):
         self.g2order = g2.order
         v = self.combine_verts(g1.v, g2.v)
         e = self.find_edges(v, g1, g2)
+        self.e = e
         self.init(v, e)
 
     def clique_weight(self, clique):
@@ -243,10 +246,43 @@ class AssocGraph(Graph):
     def calc_clique_weights(self):
         self.clique_weights = [self.clique_weight(c) for c in self.cliques]
 
+    def nx_sim_score(self):
+        g = nx.Graph()
+        print "Vertices: %d" % len(self.v)
+        for node in self.v:
+            n = node[V_LABEL]
+            g.add_node(n)
+        print "Edges: %d" % len(self.e)
+        for edge in self.e:
+            g.add_edge(*edge)
+        maxw = 0
+        maxc = []
+        cnt = 0
+        sys.stdout.write("%d\r" % cnt)
+        '''
+        for clique in nx.find_cliques(g):
+            sys.stdout.write("%d\r" % cnt)
+            w = self.clique_weight([self.v_by_label(c) for c in clique])
+            if w > maxw:
+                maxw = w
+                maxc = clique
+        '''
+        from networkx.algorithms.approximation import max_clique, clique_removal
+        for c in clique_removal(g)[1]:
+            if len(c) > len(maxc):
+                maxc = c
+        maxw = self.clique_weight([self.v_by_label(c) for c in maxc])
+        jscore = self.jaccard_coef(len(maxc), self.g1order + self.g2order)
+        wscore = maxw / self.g1order
+        print "MaxW", maxw
+        print "JScore %d, %d", len(maxc), self.g1order+self.g2order, jscore
+        print "Wscore", wscore
+        return jscore, wscore
+
     def sim_score(self):
         vlabel = V_LABEL
         logging.debug("Starting BK Pivot")
-        self.bron_kerbosch_pivot(r=set(), p=set([i for i in range(len(self.v))]), x=set())
+        self.bron_kerbosch_deg_order()  #r=set(), p=set([i for i in range(len(self.v))]), x=set())
         logging.debug("Calculating clique weights")
         self.calc_clique_weights()
         mcl_weight = max(self.clique_weights)
@@ -267,6 +303,10 @@ class AssocGraph(Graph):
 
 def main():
     import sys
+    import networkx as nx
+    import pydot
+    import pygraphviz as pgv
+    import matplotlib.pyplot as plt
 
     g1v = [('A1', ['a']),
            ('A2', ['b', 'a']),
@@ -328,6 +368,7 @@ def main():
     sys.stdout.write("%f, %f\n" % ag2.sim_score())
 
     g4.bron_kerbosch_pivot(r=set(), p=set([i for i in range(len(g4.v))]), x=set())
+    print "G4 cliques"
     for c in g4.cliques:
         for v in c:
             print g4.v[v][1],
@@ -336,7 +377,65 @@ def main():
     g4.cliques = []
     g4.clique_weights = []
     g4.bron_kerbosch_deg_order()
-    print g4.cliques
+    print "G4 cliques with degenerate order",g4.cliques
+    for c in g4.cliques:
+        for v in c:
+            print g4.v[v][1],
+        print
+
+    print "NetworkX Tests"
+    nxg1 = nx.Graph()
+    nxg2 = nx.Graph()
+
+    for n in g1v:
+        nxg1.add_node(n[0], attr_dict={"label": str(n[0])})
+    for n in g2v:
+        nxg2.add_node(n[0], attr_dict={"label": str(n[0])})
+    for e in g1e:
+        nxg1.add_edge(*e)
+    for e in g2e:
+        nxg2.add_edge(*e)
+
+    contrived_ag_nodes = range(9)
+    contrived_ag_edges = [(0,4), (0,8),
+        (1,3), (1,5),
+        (2,6), (2,4),
+        (3,1), (3,7),
+        (4,0), (4,2), (4,6), (4,8),
+        (5,1), (5,7),
+        (6,2), (6,4),
+        (7,3), (7,5),
+        (8,4), (8,0)]
+
+
+    nxag1 = nx.Graph()
+    for i, node in enumerate(contrived_ag_nodes):
+        x = float(i * 100 % 300)
+        y = float(i / 3 * 100 % 300)
+        nxag1.add_node(node, attr_dict={"label": str(node), "pos": "%f, %f" % (x,y)})
+
+    for edge in contrived_ag_edges:
+        nxag1.add_edge(*edge)
+
+    pgvag1 = nx.to_agraph(nxag1)
+    pgvag1.graph_attr['overlap'] = 'true'
+    pgvag1.layout()
+    pgvag1.draw("spectragraph.png")
+
+    #labels = nx.draw_networkx_labels(nxag1, pos=nx.spring_layout(nxag1), labels=dict(zip(range(9), range(9))))
+    #nx.draw(nxag1, with_labels=True, labels=labels)
+
+    pydot_ag1 = nx.to_pydot(nxag1)
+    print pydot_ag1.to_string()
+
+    for c in nx.find_cliques(nxag1):
+        print c
+
+    tensor = nx.tensor_product(nxg1, nxg2)
+    nx.draw(tensor)
+    pgvag2 = nx.to_agraph(tensor)
+    pgvag2.layout()
+    pgvag2.draw("tensor.png")
 
 if __name__ == "__main__":
     main()

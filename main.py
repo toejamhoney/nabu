@@ -11,6 +11,7 @@ from storage import dbgw
 from process.parsers import parse
 from lib.spectragraph.spectragraph import Graph, AssocGraph
 
+import networkx as nx
 
 GDB_CHUNK = 0
 GDB_OFFSETS = []
@@ -61,15 +62,21 @@ def pscore(pdf_name, pdf_graph, gdb_path, unique_graphs):
         logging.error("%d pscore: could not establish connection to graph database. exiting." % pid)
         return -1
 
-    with lock:
-        logging.debug("%d pscore: %s against %s" % (pid, pdf_name, unique_graphs))
-        for graph_md5 in unique_graphs:
-            pdf_id, v, e = graph_db.load_sample_graph(graph_md5)
-            match_graph = Graph()
-            match_graph.init(v, e)
-            ag = AssocGraph()
-            ag.associate(pdf_graph, match_graph)
-            plock("%s,%s,%s,%s\n" % (pdf_name, graph_md5, pdf_id, str(ag.sim_score())))
+    vsum = 0
+    esum = 0
+    #logging.debug("%d pscore: %s against %s" % (pid, pdf_name, unique_graphs))
+    for graph_md5 in unique_graphs:
+        pdf_id, v, e = graph_db.load_sample_graph(graph_md5)
+        vsum += len(v)
+        esum += len(e)
+        #match_graph = Graph()
+        #match_graph.init(v, e)
+        #ag = AssocGraph()
+        #ag.associate(pdf_graph, match_graph)
+        #plock("%s,%s,%s,%s\n" % (pdf_name, graph_md5, pdf_id, str(ag.nx_sim_score())))
+
+    print "Average |v|: %f" % (float(vsum)/len(unique_graphs))
+    print "Average |e|: %f" % (float(esum)/len(unique_graphs))
 
 
 def save_score(pnum):
@@ -93,7 +100,13 @@ def calc_similarities(pdf, graph_db, num_procs):
     v, e = pdf.get_nodes_edges()
     pdf_graph = Graph()
     pdf_graph.init(v, e)
-
+    '''
+    pdf_graph = nx.Graph()
+    for node in v:
+        pdf_graph.add_node(node[0])
+    for edge in e:
+        pdf_graph.add_edge(*edge)
+    '''
     procs = [Process(target=pscore, args=(pdf.name, pdf_graph, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
 
     for proc in procs:
