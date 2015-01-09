@@ -12,16 +12,9 @@ from process.parsers import parse
 from lib.spectragraph.spectragraph import Graph, AssocGraph
 
 import networkx as nx
+import scipy.stats as stats
 
-GDB_CHUNK = 0
-GDB_OFFSETS = []
-GRAPH_DB_PATH = None
-GRAPH_SUBJECT = None
-THRESH = 0.5
-SIMSCORES = []
-FILES = []
-
-
+NUMFEATURES = 7
 lock = Lock()
 
 
@@ -145,32 +138,96 @@ def score_pdfs(argv):
         calc_similarities(pdf, graph_db, argv.procs)
 
 
-def build_graphdb(argv):
-    todo = parse_file_set(argv.fin)
-    job_db = dbgw.JobDb(os.path.join(argv.dbdir, argv.jobdb))
-    graph_db = dbgw.GraphDb(os.path.join(argv.dbdir, argv.graphdb))
+def get_node_features(graph, node):
+    """  Node features based on NetSimile paper
+    :param node:
+    :type node:
+    :return:
+    :rtype:
+    """
+    """
+    degree of node
+    cluserting coef of node
+    avg number of node's two-hop away neighbors
+    avg clustering coef of Neighbors(node)
+    number of edges in node i's egonet
+    number of outgoing edges from ego(node)
+    number of neighbors(ego(node))
+    """
+    neighbors = graph.neighbors(node)
 
-    if not job_db.connected() or not graph_db.connected():
-        logging.error("Could not connect to job database. Jobs will not be saved, and cannot be resumed")
-        while True:
-            choice = intern(raw_input("Continue? y/n").lower())
-            if choice is "y":
-                break
-            if choice is "n":
-                sys.exit(1)
+    degree = graph.degree(node)
 
-    job_db.init()
-    graph_db.init()
+    cl_coef = nx.clustering(graph, node)
 
-    job_id = get_hash(os.path.abspath(argv.fin) + argv.action)
+    nbrs_two_hops = 0.0
+    nbrs_cl_coef = 0.0
+    for neighbor in neighbors:
+        nbrs_two_hops += graph.degree(neighbor)
+        nbrs_cl_coef += nx.clustering(graph, neighbor)
+
+    avg_two_hops = nbrs_two_hops / degree
+
+    avg_cl_coef = nbrs_cl_coef / degree
+
+    egonet = nx.ego_graph(graph, node)
+
+    ego_size = egonet.size()
+
+    ego_out = 0
+    ego_nbrs = set()
+    for ego_node in egonet:
+        for nbr in graph.neighbors(ego_node):
+            if nbr not in neighbors:
+                ego_out += 1
+                ego_nbrs.add(nbr)
+
+    return [degree, cl_coef, avg_two_hops, avg_cl_coef, ego_size, ego_out, len(ego_nbrs)]
+
+
+def get_graph_features(v, e):
+    """ Graph features based on NetSimile paper
+
+    :param v: set of vertices (label, [attrib])
+    :type v:  list
+    :param e: edges in the graph (vertex, vertex)
+    :type e: list
+    :return: a vector of features
+    :rtype: list
+    """
+    graph = nx.Graph()
+    for label, attrs in v:
+        graph.add_node(label, contains=attrs)
+    for edge in e:
+        graph.add_edge(*edge)
+
+    """
+    Transforms matrix from paper, so that each row is a feature, and each col is a node
+    """
+    features = [[] for i in range(NUMFEATURES)]
+    for node in graph.nodes_iter():
+        for idx, ftr in enumerate(get_node_features(graph, node)):
+            features[idx].append(ftr)
+
+    return features
+
+
+def aggregate_ftr_matrix(ftr_matrix):
+    sig = []
+    for ftr in ftr_matrix:
+        sig.extend([stats.nanmedian(ftr), stats.nanmean(ftr), stats.nanstd(ftr), stats.skew(ftr), stats.kurtosis(ftr)])
+    return sig
+
+
+def build_graphdb(argv, job_db, graph_db):
 
     if not argv.update:
-        done = job_db.get_completed(job_id)
-        todo.difference_update(done)
+        done = job_db.get_completed(argv.job_id)
+        argv.todo.difference_update(done)
         del done
 
     cnt = 0
-    total_jobs = len(todo)
+    total_jobs = len(argv.todo)
 
     p = Pool(argv.procs, maxtasksperchild=argv.chunk)
 
@@ -180,20 +237,49 @@ def build_graphdb(argv):
         sys.exit(1)
 
     try:
-        for pdf in p.imap_unordered(pfunc, todo, argv.chunk * argv.procs):
+        for pdf in p.imap_unordered(pfunc, argv.todo, argv.chunk * argv.procs):
             cnt += 1
-            sys.stdout.write("%7d/%7d %s\n" % (cnt, total_jobs, pdf.name))
+            #sys.stdout.write("%7d/%7d %s\r" % (cnt, total_jobs, pdf.name))
+            #sys.stdout.flush()
             if pdf.parsed:
                 verts, edges = pdf.get_nodes_edges()
-                graph_db.save(pdf.name, get_hash(str(edges)), verts, edges)
-                job_db.mark_complete(job_id, pdf.path)
+                ftr_matrix = get_graph_features(verts, edges)
+                ftrs = aggregate_ftr_matrix(ftr_matrix)
+                graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
+                pdfmd5, vmd5, emd5, v, e, f = graph_db.load_pdf_graph(pdf.name)
+                assert(pdfmd5 == pdf.name), "Name mismatch"
+                assert(v == verts), "Verts err"
+                assert(e == edges), "Edges err"
+                assert(f == ftrs), "Ftrs err"
+                job_db.mark_complete(argv.job_id, pdf.path)
     except KeyboardInterrupt:
-        sys.stdout.write("Terminating pool...\n")
+        logging.warning("\nTerminating pool...\n")
         p.terminate()
     except pool.MaybeEncodingError as e:
         logging.error("main.build_graphdb imap error: %s" % e)
 
     shutdown(p, job_db)
+
+
+def main(args):
+    args.job_id = get_hash(os.path.abspath(args.fin) + args.action)
+
+    args.todo = parse_file_set(args.fin)
+
+    job_db = dbgw.JobDb(os.path.join(args.dbdir, args.jobdb))
+    graph_db = dbgw.GraphDb(os.path.join(args.dbdir, args.graphdb))
+
+    if not job_db.init(job_db.table, job_db.cols) \
+            or not graph_db.init(graph_db.table, graph_db.cols):
+        logging.error("main.main could not initialize db. exiting.")
+        sys.exit(1)
+
+    if args.action == "build":
+        logging.info("main.main Building graph database")
+        build_graphdb(args, job_db, graph_db)
+    elif args.action == "score":
+        logging.info("main.main Scoring graphs")
+        score_pdfs(args, job_db, graph_db)
 
 
 if __name__ == "__main__":
@@ -244,6 +330,8 @@ if __name__ == "__main__":
 
     args = argparser.parse_args()
 
+    del argparser
+
     if args.debug:
         logging.basicConfig(level=logging.DEBUG)
         logging.debug("Debug mode")
@@ -252,7 +340,4 @@ if __name__ == "__main__":
     else:
         logging.basicConfig(filename=os.path.join(args.logdir, "nabu-%s.log" % time.strftime("%c").replace(" ", "_")))
 
-    if args.action == "build":
-        build_graphdb(args)
-    elif args.action == "score":
-        score_pdfs(args)
+    main(args)

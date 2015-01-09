@@ -10,25 +10,22 @@ class NabuDb(object):
 
     def __init__(self, dbpath):
         self.dbpath = dbpath
-        try:
-            self.conn = sqlite3.connect(dbpath)
-        except sqlite3.Error as e:
-            logging.error(e)
-            self.conn = None
-        else:
-            self.conn.text_factory = str
+        self.conn = None
 
-    def init(self):
+    def init(self, table, cols):
+        cmd = "create table if not exists %s(%s)" % (table, ','.join(cols))
         try:
-            self.conn.execute("create table if not exists %s(%s)" % (self.table, ','.join(self.cols)))
+            self.conn = sqlite3.connect(self.dbpath)
+            self.conn.execute(cmd)
         except sqlite3.Error as e:
-            logging.error("NabuDb.init error: %s" % e)
+            logging.error("NabuDb.init error (%s): %s\n%s" % (self.dbpath, e, cmd))
             return False
         else:
+            self.conn.text_factory = str
             return True
 
     def connected(self):
-        return self.conn
+        return self.conn is not None
 
     def query(self, cmd, subs):
         try:
@@ -98,7 +95,7 @@ class XmlDb(NabuDb):
 class GraphDb(NabuDb):
 
     table = "results"
-    cols = ["pdf_id primary key", "graph_md5", "vertices", "edges"]
+    cols = ["pdf_id primary key", "v_md5", "e_md5", "vertices", "edges", "features"]
 
     @staticmethod
     def serialize(data):
@@ -120,11 +117,12 @@ class GraphDb(NabuDb):
         else:
             return data
 
-    def save(self, pdf, graph_md5, v_set, e_set):
-        cmd = "insert or replace into %s values(?, ?, ?, ?)" % self.table
+    def save(self, pdf, v_md5, e_md5, v_set, e_set, ftrs):
+        cmd = "insert or replace into %s values(?, ?, ?, ?, ?, ?)" % self.table
         v_json = self.serialize(v_set)
         e_json = self.serialize(e_set)
-        rv = self.query(cmd, (pdf, graph_md5, v_json, e_json))
+        f_json = self.serialize(ftrs)
+        rv = self.query(cmd, (pdf, v_md5, e_md5, v_json, e_json, f_json))
         return rv
 
     def load_sample_graph(self, graph_md5):
@@ -139,15 +137,16 @@ class GraphDb(NabuDb):
         return pdf_id, v_set, e_set
 
     def load_pdf_graph(self, pdf):
-        cmd = "select graph_md5, vertices, edges from %s where pdf_id=?" % self.table
+        cmd = "select graph_md5, v_md5, e_md5, vertices, edges, features from %s where pdf_id=?" % self.table
         rows = self.query(cmd, (pdf,))
         if rows:
-            graph_md5, v_json, e_json = rows[0]
+            graph_md5, v_md5, e_md5, v_json, e_json, f_json = rows[0]
             v_set = self.deserialize(v_json)
             e_set = self.deserialize(e_json)
+            f_list = self.deserialize(f_json)
+            return graph_md5, v_md5, e_md5, v_set, e_set, f_list
         else:
-            graph_md5, v_set, e_set = '', '', ''
-        return graph_md5, v_set, e_set
+            return ['' for i in range(6)]
 
     def chunk(self, limit, offset):
         cmd = "select pdf_id, vertices, edges from %s limit %d offset %d" % (self.table, limit, offset)
