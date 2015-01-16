@@ -125,19 +125,18 @@ class GraphDb(NabuDb):
         rv = self.query(cmd, (pdf, v_md5, e_md5, v_json, e_json, f_json))
         return rv
 
-    def load_sample_graph(self, graph_md5):
-        cmd = "select pdf_id, vertices, edges from %s where graph_md5=? limit 1" % self.table
-        rows = self.query(cmd, (graph_md5,))
+    def load_family_features(self, edge_md5):
+        cmd = "select pdf_id, features from %s where e_md5=? limit 1" % self.table
+        rows = self.query(cmd, (edge_md5,))
         if rows:
-            pdf_id, v_json, e_json = rows[0]
-            v_set = self.deserialize(v_json)
-            e_set = self.deserialize(e_json)
+            pdf_id, f_json = rows[0]
+            f_list = self.deserialize(f_json)
         else:
-            pdf_id, v_set, e_set = '', '', ''
-        return pdf_id, v_set, e_set
+            pdf_id, f_list = '', ''
+        return pdf_id, f_list
 
     def load_pdf_graph(self, pdf):
-        cmd = "select graph_md5, v_md5, e_md5, vertices, edges, features from %s where pdf_id=?" % self.table
+        cmd = "select pdf_id, v_md5, e_md5, vertices, edges, features from %s where pdf_id=?" % self.table
         rows = self.query(cmd, (pdf,))
         if rows:
             graph_md5, v_md5, e_md5, v_json, e_json, f_json = rows[0]
@@ -146,6 +145,7 @@ class GraphDb(NabuDb):
             f_list = self.deserialize(f_json)
             return graph_md5, v_md5, e_md5, v_set, e_set, f_list
         else:
+            logging.debug("PDF not found: %s" % pdf)
             return ['' for i in range(6)]
 
     def chunk(self, limit, offset):

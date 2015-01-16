@@ -13,6 +13,9 @@ from lib.spectragraph.spectragraph import Graph, AssocGraph
 
 import networkx as nx
 import scipy.stats as stats
+from scipy.spatial.distance import canberra
+import numpy as np
+
 
 NUMFEATURES = 7
 lock = Lock()
@@ -48,28 +51,18 @@ def shutdown(pool_, job_db):
     job_db.close()
 
 
-def pscore(pdf_name, pdf_graph, gdb_path, unique_graphs):
+def pscore(pdf_name, thresh, ftrs, gdb_path, unique_graphs):
     pid = current_process().pid
     graph_db = dbgw.GraphDb(gdb_path)
-    if not graph_db:
-        logging.error("%d pscore: could not establish connection to graph database. exiting." % pid)
-        return -1
+    if not graph_db.init(graph_db.table, graph_db.cols):
+        logging.error("pscore %d could not initialize db. exiting." % pid)
+        sys.exit(-1)
 
-    vsum = 0
-    esum = 0
-    #logging.debug("%d pscore: %s against %s" % (pid, pdf_name, unique_graphs))
-    for graph_md5 in unique_graphs:
-        pdf_id, v, e = graph_db.load_sample_graph(graph_md5)
-        vsum += len(v)
-        esum += len(e)
-        #match_graph = Graph()
-        #match_graph.init(v, e)
-        #ag = AssocGraph()
-        #ag.associate(pdf_graph, match_graph)
-        #plock("%s,%s,%s,%s\n" % (pdf_name, graph_md5, pdf_id, str(ag.nx_sim_score())))
-
-    print "Average |v|: %f" % (float(vsum)/len(unique_graphs))
-    print "Average |e|: %f" % (float(esum)/len(unique_graphs))
+    for edge_md5 in unique_graphs:
+        pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
+        can_dist = canberra(ftrs, ftrs_b)
+        if not thresh or can_dist <= thresh:
+            plock("%s,%s,%f\n" % (pdf_name, pdf_id, can_dist))
 
 
 def save_score(pnum):
@@ -80,62 +73,48 @@ def save_score(pnum):
 def calc_workload(num_jobs, num_procs):
     if num_jobs <= num_procs:
         return 1, num_jobs
-    chunk_size = int(math.ceil(float(num_jobs) / num_procs))
+    chunk_size = int(math.floor(float(num_jobs) / num_procs))
     return chunk_size, num_procs
 
 
-def calc_similarities(pdf, graph_db, num_procs):
-    unique_graphs = [row[0] for row in graph_db.get_unique('graph_md5')]
+def calc_similarities(pdf, ftrs, graph_db, num_procs, thresh):
+    unique_graphs = [row[0] for row in graph_db.get_unique('e_md5')]
     unique_num = len(unique_graphs)
     chunk_size, num_procs = calc_workload(unique_num, num_procs)
     offsets = [x for x in range(0, unique_num, chunk_size)]
+    logging.debug("calc_sim: %d procs offsets[%d] unique_graphs[%d]" % (num_procs, len(offsets), unique_num))
 
-    v, e = pdf.get_nodes_edges()
-    pdf_graph = Graph()
-    pdf_graph.init(v, e)
-    '''
-    pdf_graph = nx.Graph()
-    for node in v:
-        pdf_graph.add_node(node[0])
-    for edge in e:
-        pdf_graph.add_edge(*edge)
-    '''
-    procs = [Process(target=pscore, args=(pdf.name, pdf_graph, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
+    procs = [Process(target=pscore, args=(pdf.name, thresh, ftrs, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
 
+    logging.debug("nabu.calc_simil. starting  children")
     for proc in procs:
         proc.start()
 
+    logging.debug("nabu.calc_simil. waiting on children")
     for proc in procs:
         proc.join()
 
 
-def score_pdfs(argv):
+def score_pdfs(argv, job_db, graph_db):
     todo = parse_file_set(argv.fin)
-    todo_num = len(todo)
-
-    gdb_path = os.path.join(argv.dbdir, argv.graphdb)
-    graph_db = dbgw.GraphDb(gdb_path)
-    graph_db.init()
 
     parse_func = parse.get_parser(argv.parser)
     if not parse_func:
         logging.error("main.score_pdfs did not find valid parser: %s" % argv.parser)
         sys.exit(1)
 
-    cnt = 0
-    for pdf in todo:
-        if not os.path.isfile(pdf):
-            logging.warning("main.score_pdfs not a file: %s" % pdf)
+    for pdf_id in todo:
+        if not os.path.isfile(pdf_id):
+            logging.warning("main.score_pdfs not a file: %s" % pdf_id)
             continue
-        cnt += 1
-        sys.stdout.write("%d / %d %s\n" % (cnt, todo_num, pdf))
 
-        pdf = parse_func(pdf)
+        pdf = parse_func(pdf_id)
         if pdf.parsed:
             verts, edges = pdf.get_nodes_edges()
-            graph_db.save(pdf.name, get_hash(str(edges)), verts, edges)
-
-        calc_similarities(pdf, graph_db, argv.procs)
+            ftr_matrix = get_graph_features(verts, edges)
+            ftrs = aggregate_ftr_matrix(ftr_matrix)
+            graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
+            calc_similarities(pdf, ftrs, graph_db, argv.procs, argv.thresh)
 
 
 def get_node_features(graph, node):
@@ -166,9 +145,12 @@ def get_node_features(graph, node):
         nbrs_two_hops += graph.degree(neighbor)
         nbrs_cl_coef += nx.clustering(graph, neighbor)
 
-    avg_two_hops = nbrs_two_hops / degree
-
-    avg_cl_coef = nbrs_cl_coef / degree
+    try:
+        avg_two_hops = nbrs_two_hops / degree
+        avg_cl_coef = nbrs_cl_coef / degree
+    except ZeroDivisionError:
+        avg_two_hops = 0.0
+        avg_cl_coef = 0.0
 
     egonet = nx.ego_graph(graph, node)
 
@@ -215,7 +197,12 @@ def get_graph_features(v, e):
 def aggregate_ftr_matrix(ftr_matrix):
     sig = []
     for ftr in ftr_matrix:
-        sig.extend([stats.nanmedian(ftr), stats.nanmean(ftr), stats.nanstd(ftr), stats.skew(ftr), stats.kurtosis(ftr)])
+        median = stats.nanmedian(ftr)
+        mean = stats.nanmean(ftr)
+        std = stats.nanstd(ftr)
+        skew = stats.skew(ftr) if any(ftr) else 0.0
+        kurtosis = stats.kurtosis(ftr)
+        sig.extend([median, mean, std, skew, kurtosis])
     return sig
 
 
@@ -239,15 +226,15 @@ def build_graphdb(argv, job_db, graph_db):
     try:
         for pdf in p.imap_unordered(pfunc, argv.todo, argv.chunk * argv.procs):
             cnt += 1
-            #sys.stdout.write("%7d/%7d %s\r" % (cnt, total_jobs, pdf.name))
-            #sys.stdout.flush()
+            sys.stdout.write("%7d/%7d %s\r" % (cnt, total_jobs, pdf.name))
+            sys.stdout.flush()
             if pdf.parsed:
                 verts, edges = pdf.get_nodes_edges()
                 ftr_matrix = get_graph_features(verts, edges)
                 ftrs = aggregate_ftr_matrix(ftr_matrix)
                 graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
                 pdfmd5, vmd5, emd5, v, e, f = graph_db.load_pdf_graph(pdf.name)
-                assert(pdfmd5 == pdf.name), "Name mismatch"
+                assert(pdfmd5 == pdf.name), "Name mismatch: %s vs %s" % (pdfmd5, pdf.name)
                 assert(v == verts), "Verts err"
                 assert(e == edges), "Edges err"
                 assert(f == ftrs), "Ftrs err"
@@ -323,6 +310,10 @@ if __name__ == "__main__":
                            type=int,
                            default=2*cpu_count()/3,
                            help="Number of parallel processes. Default is 2/3 cpu core count")
+    argparser.add_argument('-t', '--thresh',
+                           type=int,
+                           default=0,
+                           help="Threshold which reports only graphs with similarities at or below this value.")
     argparser.add_argument('-u', '--update',
                            default=False,
                            action='store_true',
