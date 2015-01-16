@@ -27,7 +27,7 @@ def parse_and_hash(pdfpath):
         logging.error("Parse and hash error on %s: %s" % (pdfpath, e))
         pdf.parsed = False
 
-    if pdf.parsed:
+    if 0:
         fout = os.path.join(OUTPUTDIR, "%s.xml.zip" % pdf.name)
         try:
             gzfp = gzip.open(fout, "wb", compresslevel=4)
