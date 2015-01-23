@@ -6,6 +6,7 @@ import sys
 import time
 from argparse import ArgumentParser
 from multiprocessing import pool, Pool, cpu_count, Process, Lock, current_process
+from tempfile import NamedTemporaryFile as NTF
 
 from storage import dbgw
 from process.parsers import parse
@@ -14,8 +15,12 @@ from lib.spectragraph.spectragraph import Graph, AssocGraph
 import networkx as nx
 import scipy.stats as stats
 from scipy.spatial.distance import canberra
+from scipy.cluster.hierarchy import *
 import numpy as np
 
+#from hcluster import *
+import matplotlib.pyplot as plt
+from numpy import loadtxt
 
 NUMFEATURES = 7
 lock = Lock()
@@ -62,7 +67,7 @@ def pscore(pdf_name, thresh, ftrs, gdb_path, unique_graphs):
         pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
         can_dist = canberra(ftrs, ftrs_b)
         if not thresh or can_dist <= thresh:
-            plock("%s,%s,%f\n" % (pdf_name, pdf_id, can_dist))
+            plock("%s,%s,%s,%f\n" % (pdf_name, edge_md5, pdf_id, can_dist))
 
 
 def save_score(pnum):
@@ -87,6 +92,8 @@ def calc_similarities(pdf, ftrs, graph_db, num_procs, thresh):
     procs = [Process(target=pscore, args=(pdf.name, thresh, ftrs, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
 
     logging.debug("nabu.calc_simil. starting  children")
+
+    plock("subject,family,candidate,score\n")
     for proc in procs:
         proc.start()
 
@@ -203,6 +210,7 @@ def aggregate_ftr_matrix(ftr_matrix):
         skew = stats.skew(ftr) if any(ftr) else 0.0
         kurtosis = stats.kurtosis(ftr)
         sig.extend([median, mean, std, skew, kurtosis])
+    logging.debug("Aggregate ftr len: %d" % len(sig))
     return sig
 
 
@@ -233,11 +241,6 @@ def build_graphdb(argv, job_db, graph_db):
                 ftr_matrix = get_graph_features(verts, edges)
                 ftrs = aggregate_ftr_matrix(ftr_matrix)
                 graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
-                pdfmd5, vmd5, emd5, v, e, f = graph_db.load_pdf_graph(pdf.name)
-                assert(pdfmd5 == pdf.name), "Name mismatch: %s vs %s" % (pdfmd5, pdf.name)
-                assert(v == verts), "Verts err"
-                assert(e == edges), "Edges err"
-                assert(f == ftrs), "Ftrs err"
                 job_db.mark_complete(argv.job_id, pdf.path)
     except KeyboardInterrupt:
         logging.warning("\nTerminating pool...\n")
@@ -248,10 +251,45 @@ def build_graphdb(argv, job_db, graph_db):
     shutdown(p, job_db)
 
 
-def main(args):
-    args.job_id = get_hash(os.path.abspath(args.fin) + args.action)
+def draw_clusters(argv, graph_db):
+    unique_graphs = [row[0] for row in graph_db.get_unique('e_md5')]
+    unique_num = len(unique_graphs)
 
-    args.todo = parse_file_set(args.fin)
+    logging.info('draw_clusters: Clustering %d graphs' % unique_num)
+
+    tmpf = open('tmp.csv', 'w')
+
+    ftrs = []
+    for edge_md5 in unique_graphs:
+        pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
+        ftrs.append([str(f) for f in ftrs_b])
+
+    print ftrs_b
+    print len(ftrs_b)
+
+    tmpf.write('\n'.join([str(f) for f in ftrs]))
+    tmpf.close()
+
+    '''
+    plock("Loading...")
+    x = loadtxt('tmp.csv')
+    print x[:10]
+    plock("Calculating distances...")
+    y = pdist(x, 'canberra')
+    print y[:10]
+    plock("Linkage...")
+    z = linkage(y, 'single')
+    plock("Drawing dendrogram...")
+    dendrogram(z, color_threshold=2)
+    plock("Show\n")
+    plt.show()
+    '''
+
+def main(args):
+    if args.fin:
+        args.job_id = get_hash(os.path.abspath(args.fin) + args.action)
+
+        args.todo = parse_file_set(args.fin)
 
     job_db = dbgw.JobDb(os.path.join(args.dbdir, args.jobdb))
     graph_db = dbgw.GraphDb(os.path.join(args.dbdir, args.graphdb))
@@ -267,6 +305,9 @@ def main(args):
     elif args.action == "score":
         logging.info("main.main Scoring graphs")
         score_pdfs(args, job_db, graph_db)
+    elif args.action == "cluster":
+        logging.info("main.main Clustering graphs")
+        draw_clusters(args, graph_db)
 
 
 if __name__ == "__main__":
@@ -274,7 +315,7 @@ if __name__ == "__main__":
 
     argparser.add_argument('action',
                            help="build | score")
-    argparser.add_argument('fin',
+    argparser.add_argument('--fin',
                            help="line separated text file of samples to run")
     argparser.add_argument('-b', '--beginning',
                            action='store_true',
