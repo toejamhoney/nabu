@@ -6,19 +6,15 @@ import sys
 import time
 from argparse import ArgumentParser
 from multiprocessing import pool, Pool, cpu_count, Process, Lock, current_process
-from tempfile import NamedTemporaryFile as NTF
 
 from storage import dbgw
 from process.parsers import parse
-from lib.spectragraph.spectragraph import Graph, AssocGraph
 
 import networkx as nx
 import scipy.stats as stats
 from scipy.spatial.distance import canberra
 from scipy.cluster.hierarchy import *
-import numpy as np
 
-#from hcluster import *
 import matplotlib.pyplot as plt
 from numpy import loadtxt
 
@@ -210,7 +206,6 @@ def aggregate_ftr_matrix(ftr_matrix):
         skew = stats.skew(ftr) if any(ftr) else 0.0
         kurtosis = stats.kurtosis(ftr)
         sig.extend([median, mean, std, skew, kurtosis])
-    logging.debug("Aggregate ftr len: %d" % len(sig))
     return sig
 
 
@@ -256,7 +251,7 @@ def draw_clusters(argv, graph_db):
     unique_num = len(unique_graphs)
 
     logging.info('draw_clusters: Clustering %d graphs' % unique_num)
-
+    '''
     tmpf = open('tmp.csv', 'w')
 
     ftrs = []
@@ -264,26 +259,31 @@ def draw_clusters(argv, graph_db):
         pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
         ftrs.append([str(f) for f in ftrs_b])
 
-    print ftrs_b
-    print len(ftrs_b)
-
-    tmpf.write('\n'.join([str(f) for f in ftrs]))
+    tmpf.write('\n'.join([('%.5f' % f) for f in ftrs]))
     tmpf.close()
 
-    '''
+
     plock("Loading...")
     x = loadtxt('tmp.csv')
-    print x[:10]
+    '''
+    x = []
+    for edge_md5 in unique_graphs:
+        pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
+        x.append(ftrs_b)
+
     plock("Calculating distances...")
+    '''
+    This line is for hcluster, not scipy cluster
     y = pdist(x, 'canberra')
     print y[:10]
+    '''
     plock("Linkage...")
-    z = linkage(y, 'single')
+    z = linkage(x, 'single', metric='canberra')
     plock("Drawing dendrogram...")
     dendrogram(z, color_threshold=2)
-    plock("Show\n")
+    plock("Showtime\n")
     plt.show()
-    '''
+
 
 def main(args):
     if args.fin:
@@ -299,15 +299,19 @@ def main(args):
         logging.error("main.main could not initialize db. exiting.")
         sys.exit(1)
 
+    start = time.clock()
     if args.action == "build":
         logging.info("main.main Building graph database")
         build_graphdb(args, job_db, graph_db)
+        logging.info("Build finished in ~ %.3f" % (time.clock() - start))
     elif args.action == "score":
         logging.info("main.main Scoring graphs")
         score_pdfs(args, job_db, graph_db)
+        logging.info("Scoring finished in ~ %.3f" % (time.clock() - start))
     elif args.action == "cluster":
         logging.info("main.main Clustering graphs")
         draw_clusters(args, graph_db)
+        logging.info("Clustering finished in ~ %.3f" % (time.clock() - start))
 
 
 if __name__ == "__main__":
@@ -329,10 +333,10 @@ if __name__ == "__main__":
                            action='store_true',
                            default=False,
                            help="Spam the terminal with debug output")
-    argparser.add_argument('--graphdb',
+    argparser.add_argument('-g', '--graphdb',
                            default='nabu-graphdb.sqlite',
                            help='Graph database filename. Default is nabu-graphdb.sqlite')
-    argparser.add_argument('--jobdb',
+    argparser.add_argument('-j', '--jobdb',
                            default='nabu-jobs.sqlite',
                            help='Job database filename. Default is nabu-jobs.sqlite')
     argparser.add_argument('--xmldb',
