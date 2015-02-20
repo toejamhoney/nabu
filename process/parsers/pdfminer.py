@@ -25,7 +25,10 @@ def parse_and_hash(pdfpath):
         parser.parse(pdf)
     except Exception as e:
         logging.error("Parse and hash error on %s: %s" % (pdfpath, e))
-        pdf.parsed = False
+    else:
+        pdf.set_feature_vector()
+    finally:
+        logging.debug("%s,features\n%d,%s" % (pdf.name, len(pdf.ftr_vec), pdf.ftr_vec))
 
     if 0:
         fout = os.path.join(OUTPUTDIR, "%s.xml.zip" % pdf.name)

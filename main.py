@@ -15,6 +15,7 @@ import scipy.stats as stats
 from scipy.spatial.distance import canberra
 from scipy.cluster.hierarchy import *
 
+
 import matplotlib.pyplot as plt
 from numpy import loadtxt
 
@@ -61,6 +62,7 @@ def pscore(pdf_name, thresh, ftrs, gdb_path, unique_graphs):
 
     for edge_md5 in unique_graphs:
         pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
+        logging.debug("\t%s: %s" % (pdf_id, ftrs_b))
         can_dist = canberra(ftrs, ftrs_b)
         if not thresh or can_dist <= thresh:
             plock("%s,%s,%s,%f\n" % (pdf_name, edge_md5, pdf_id, can_dist))
@@ -78,14 +80,14 @@ def calc_workload(num_jobs, num_procs):
     return chunk_size, num_procs
 
 
-def calc_similarities(pdf, ftrs, graph_db, num_procs, thresh):
+def calc_similarities(pdf, graph_db, num_procs, thresh):
     unique_graphs = [row[0] for row in graph_db.get_unique('e_md5')]
     unique_num = len(unique_graphs)
     chunk_size, num_procs = calc_workload(unique_num, num_procs)
     offsets = [x for x in range(0, unique_num, chunk_size)]
     logging.debug("calc_sim: %d procs offsets[%d] unique_graphs[%d]" % (num_procs, len(offsets), unique_num))
 
-    procs = [Process(target=pscore, args=(pdf.name, thresh, ftrs, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
+    procs = [Process(target=pscore, args=(pdf.name, thresh, pdf.ftr_vec, graph_db.dbpath, unique_graphs[offsets[proc]:offsets[proc]+chunk_size])) for proc in range(num_procs)]
 
     logging.debug("nabu.calc_simil. starting  children")
 
@@ -107,17 +109,16 @@ def score_pdfs(argv, job_db, graph_db):
         sys.exit(1)
 
     for pdf_id in todo:
+        sys.stdout.write("Scoring: %s\n" % pdf_id)
         if not os.path.isfile(pdf_id):
             logging.warning("main.score_pdfs not a file: %s" % pdf_id)
             continue
 
         pdf = parse_func(pdf_id)
-        if pdf.parsed:
-            verts, edges = pdf.get_nodes_edges()
-            ftr_matrix = get_graph_features(verts, edges)
-            ftrs = aggregate_ftr_matrix(ftr_matrix)
-            graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
-            calc_similarities(pdf, ftrs, graph_db, argv.procs, argv.thresh)
+        logging.debug("%s: %s" % (pdf.name, pdf.ftr_vec))
+
+        graph_db.save(pdf.name, get_hash(str(pdf.v)), get_hash(str(pdf.e)), pdf.v, pdf.e, pdf.ftr_vec)
+        calc_similarities(pdf, graph_db, argv.procs, argv.thresh)
 
 
 def get_node_features(graph, node):
@@ -203,6 +204,7 @@ def aggregate_ftr_matrix(ftr_matrix):
         median = stats.nanmedian(ftr)
         mean = stats.nanmean(ftr)
         std = stats.nanstd(ftr)
+        # Invalid double scalars warning appears here
         skew = stats.skew(ftr) if any(ftr) else 0.0
         kurtosis = stats.kurtosis(ftr)
         sig.extend([median, mean, std, skew, kurtosis])
@@ -229,14 +231,24 @@ def build_graphdb(argv, job_db, graph_db):
     try:
         for pdf in p.imap_unordered(pfunc, argv.todo, argv.chunk * argv.procs):
             cnt += 1
-            sys.stdout.write("%7d/%7d %s\r" % (cnt, total_jobs, pdf.name))
-            sys.stdout.flush()
+            sys.stdout.write("%7d/%7d\r" % (cnt, total_jobs))
+            logging.debug("%s: %s" % (pdf.name, pdf.ftr_vec))
+            graph_db.save(pdf.name, get_hash(str(pdf.v)), get_hash(str(pdf.e)), pdf.v, pdf.e, pdf.ftr_vec)
+            '''
             if pdf.parsed:
                 verts, edges = pdf.get_nodes_edges()
+                logging.debug("%s: num verts %d\tnum edges %d" % (pdf.name, len(verts), len(edges)))
                 ftr_matrix = get_graph_features(verts, edges)
+                logging.debug("%s,feature matrix\n%s" % (pdf.name, '\n'.join(["%d,%s" % (len(f), str(f)) for f in ftr_matrix])))
                 ftrs = aggregate_ftr_matrix(ftr_matrix)
+                del ftr_matrix
+                logging.debug("%s,features\n%d,%s" % (pdf.name, len(ftrs), ftrs))
                 graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
+                del verts
+                del edges
+                del ftrs
                 job_db.mark_complete(argv.job_id, pdf.path)
+            '''
     except KeyboardInterrupt:
         logging.warning("\nTerminating pool...\n")
         p.terminate()
