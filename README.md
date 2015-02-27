@@ -2,3 +2,4 @@
 ### DEPENDENCIES
 networkx
 scipy
+matplotlib
