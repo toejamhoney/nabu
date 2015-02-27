@@ -1,5 +1,5 @@
 ### ABOUT
 ### DEPENDENCIES
-networkx
-scipy
-matplotlib
+-networkx
+-scipy
+-matplotlib
