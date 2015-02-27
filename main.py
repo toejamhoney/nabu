@@ -62,9 +62,13 @@ def pscore(pdf_name, thresh, ftrs, gdb_path, unique_graphs):
     for edge_md5 in unique_graphs:
         pdf_id, ftrs_b = graph_db.load_family_features(edge_md5)
         logging.debug("\t%s: %s" % (pdf_id, ftrs_b))
-        can_dist = canberra(ftrs, ftrs_b)
-        if not thresh or can_dist <= thresh:
-            plock("%s,%s,%s,%f\n" % (pdf_name, edge_md5, pdf_id, can_dist))
+        try:
+            can_dist = canberra(ftrs, ftrs_b)
+        except ValueError:
+            logging.error("pscore canberra calc error. likely bad features for %s or %s" % (pdf_name, pdf_id))
+        else:
+            if not thresh or can_dist <= thresh:
+                plock("%s,%s,%s,%f\n" % (pdf_name, edge_md5, pdf_id, can_dist))
 
 
 def save_score(pnum):
@@ -232,7 +236,8 @@ def build_graphdb(argv, job_db, graph_db):
             cnt += 1
             sys.stdout.write("%7d/%7d\r" % (cnt, total_jobs))
             #logging.debug("%s: %s" % (pdf.name, pdf.ftr_vec))
-            graph_db.save(pdf.name, get_hash(str(pdf.v)), get_hash(str(pdf.e)), pdf.v, pdf.e, pdf.ftr_vec)
+            if pdf.ftr_vec:
+                graph_db.save(pdf.name, get_hash(str(pdf.v)), get_hash(str(pdf.e)), pdf.v, pdf.e, pdf.ftr_vec)
     except KeyboardInterrupt:
         logging.warning("\nTerminating pool...\n")
         p.terminate()
