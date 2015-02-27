@@ -1,3 +1,4 @@
 ### ABOUT
-Hello World
-### INSTALLATION
+### DEPENDENCIES
+networkx
+scipy

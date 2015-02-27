@@ -15,9 +15,8 @@ import scipy.stats as stats
 from scipy.spatial.distance import canberra
 from scipy.cluster.hierarchy import *
 
-
 import matplotlib.pyplot as plt
-from numpy import loadtxt
+
 
 NUMFEATURES = 7
 lock = Lock()
@@ -232,23 +231,8 @@ def build_graphdb(argv, job_db, graph_db):
         for pdf in p.imap_unordered(pfunc, argv.todo, argv.chunk * argv.procs):
             cnt += 1
             sys.stdout.write("%7d/%7d\r" % (cnt, total_jobs))
-            logging.debug("%s: %s" % (pdf.name, pdf.ftr_vec))
+            #logging.debug("%s: %s" % (pdf.name, pdf.ftr_vec))
             graph_db.save(pdf.name, get_hash(str(pdf.v)), get_hash(str(pdf.e)), pdf.v, pdf.e, pdf.ftr_vec)
-            '''
-            if pdf.parsed:
-                verts, edges = pdf.get_nodes_edges()
-                logging.debug("%s: num verts %d\tnum edges %d" % (pdf.name, len(verts), len(edges)))
-                ftr_matrix = get_graph_features(verts, edges)
-                logging.debug("%s,feature matrix\n%s" % (pdf.name, '\n'.join(["%d,%s" % (len(f), str(f)) for f in ftr_matrix])))
-                ftrs = aggregate_ftr_matrix(ftr_matrix)
-                del ftr_matrix
-                logging.debug("%s,features\n%d,%s" % (pdf.name, len(ftrs), ftrs))
-                graph_db.save(pdf.name, get_hash(str(verts)), get_hash(str(edges)), verts, edges, ftrs)
-                del verts
-                del edges
-                del ftrs
-                job_db.mark_complete(argv.job_id, pdf.path)
-            '''
     except KeyboardInterrupt:
         logging.warning("\nTerminating pool...\n")
         p.terminate()
@@ -322,7 +306,8 @@ def main(args):
         logging.info("Scoring finished in ~ %.3f" % (time.clock() - start))
     elif args.action == "cluster":
         logging.info("main.main Clustering graphs")
-        draw_clusters(args, graph_db)
+        sys.stdout.write("Lets not do that write now\n")
+        #draw_clusters(args, graph_db)
         logging.info("Clustering finished in ~ %.3f" % (time.clock() - start))
 
 
@@ -365,7 +350,7 @@ if __name__ == "__main__":
                            help="Type of pdf parser to use. Default is pdfminer")
     argparser.add_argument('-p', '--procs',
                            type=int,
-                           default=2*cpu_count()/3,
+                           default=cpu_count(),
                            help="Number of parallel processes. Default is 2/3 cpu core count")
     argparser.add_argument('-t', '--thresh',
                            type=int,
