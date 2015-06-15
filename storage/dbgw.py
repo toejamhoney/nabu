@@ -1,6 +1,7 @@
+import cPickle
 import logging
 import sqlite3
-import cPickle
+import sys
 
 
 class NabuDb(object):
@@ -154,3 +155,17 @@ class GraphDb(NabuDb):
         for idx, (pdf, v, e) in enumerate(rows):
             rows[idx] = [pdf, self.deserialize(v), self.deserialize(e)]
         return rows
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print "Need database"
+        sys.exit(1)
+
+    gdb = GraphDb(sys.argv[1])
+    if not gdb.init(gdb.table, gdb.cols):
+        print "Database error"
+        sys.exit(1)
+
+    families = [row[0] for row in gdb.get_unique('e_md5')]
+    for f in families:
+        print "%s,%s" % gdb.load_family_features(f)
